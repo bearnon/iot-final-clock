@@ -56,10 +56,12 @@ const int daylightOffset_sec = 0;
 uRTCLib rtc(0x68);
 Audio audio;
 std::vector<noti_item_t> noti_list_vec;
+noti_item_t *latest_item = NULL;
 int num_ids = 0;
 TFT_eSPI tft = TFT_eSPI();       // Invoke custom library
 static lv_disp_draw_buf_t draw_buf;
 static lv_color_t buf[ screenWidth * screenHeight / 10 ];
+int audio_volume = 8;
 
 void sd_setup(){
   SD_MMC.setPins(SD_MMC_CLK, SD_MMC_CMD, SD_MMC_D0);
@@ -88,7 +90,7 @@ void sd_setup(){
 void audio_setup(){
   audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
   //Set volume
-  audio.setVolume(8);  // 0...21
+  audio.setVolume(audio_volume);  // 0...21
   //Select SD card and music file
   // audio.connecttoFS(SD_MMC, "StarWars60.wav");
 }
@@ -358,30 +360,48 @@ bool sameTimeMin(int hour1, int min1, int hour2, int min2){
   return min1 == min2 && hour1 == hour2;
 }
 
+void printLatestNotiText(){
+  if(latest_item == NULL)
+    return;
+  lv_calendar_date_t today;
+  today.year = y;
+  today.month = m;
+  today.day = d;
+  int diff_day, diff_hour, diff_min;
+  diffDateTime(&diff_day, &diff_hour, &diff_min, &latest_item->date, latest_item->hour, latest_item->min, &today, hh, mm);
+  lv_label_set_text_fmt(latest_noti, "Next: %s - in %d day %d hour %d minute", latest_item->description, diff_day, diff_hour, diff_min);
+}
+
 void updateLatestNoti(){
   if(noti_list_vec.size() == 0){
     lv_label_set_text(latest_noti, "No events");
+    latest_item = NULL;
     return;
   }
   lv_calendar_date_t today;
   today.year = y;
   today.month = m;
   today.day = d;
-  noti_item_t *latest = &noti_list_vec[0];
+  noti_item_t *latest = NULL;
   for(int i = 1; i < noti_list_vec.size(); i++){
-    if(compareDateTime(&latest->date, latest->hour, latest->min, &noti_list_vec[i].date, noti_list_vec[i].hour, noti_list_vec[i].min) &&
+    if(latest == NULL) {
+      if(compareDateTime(&noti_list_vec[i].date, noti_list_vec[i].hour, noti_list_vec[i].min, &today, hh, mm)){
+        latest = &noti_list_vec[i];
+      }
+    }
+    else if(compareDateTime(&latest->date, latest->hour, latest->min, &noti_list_vec[i].date, noti_list_vec[i].hour, noti_list_vec[i].min) &&
         compareDateTime(&noti_list_vec[i].date, noti_list_vec[i].hour, noti_list_vec[i].min, &today, hh, mm)
       ){
       latest = &noti_list_vec[i];
     }
   }
-  if(!compareDateTime(&latest->date, latest->hour, latest->min, &today, hh, mm)){
+  if(latest == NULL){
     lv_label_set_text(latest_noti, "No events");
+    latest_item = NULL;
     return;
   }
-  int diff_day, diff_hour, diff_min;
-  diffDateTime(&diff_day, &diff_hour, &diff_min, &latest->date, latest->hour, latest->min, &today, hh, mm);
-  lv_label_set_text_fmt(latest_noti, "Next: %s - in %d day %d hour %d minute", latest->description, diff_day, diff_hour, diff_min);
+  latest_item = latest;
+  printLatestNotiText();
 }
 
 void mbox_close_cb(lv_event_t * e)
@@ -442,6 +462,7 @@ void clock_timer_callback(lv_timer_t *timer){
           break;
         }
       }
+      printLatestNotiText();
       if(mm == 0 && hh == 0){ /* new day */
         lv_label_set_text_fmt(dmy, "%s %d %d - %s", month_abbr[m-1], d, y, week_abbr[dow]);
         lv_calendar_set_today_date(calendar, y, m, d);
@@ -662,6 +683,14 @@ void noti_add_btn_event_cb(lv_event_t *e){
   }
 }
 
+void volume_slider_event_cb(lv_event_t *e){
+  lv_obj_t * slider = lv_event_get_target(e);
+  lv_obj_t *tg = (lv_obj_t *)lv_event_get_user_data(e);
+  audio_volume = lv_slider_get_value(slider);
+  audio.setVolume(audio_volume);
+  lv_label_set_text_fmt(tg, "%d", audio_volume);
+}
+
 /* click the calendar date */
 void calendar_event_cb(lv_event_t *e){
   lv_event_code_t code = lv_event_get_code(e);
@@ -770,7 +799,50 @@ void lv_widgets(){
   lv_obj_add_style(temperature, &style_clock_small, 0);
   lv_obj_set_style_text_align(temperature, LV_TEXT_ALIGN_RIGHT, 0);
 
+  lv_obj_t *settings_panel = lv_obj_create(t3);
+  lv_obj_set_style_border_width(settings_panel, 0, 0);
+  lv_obj_set_style_bg_opa(settings_panel, LV_OPA_0, 0);
+  static lv_coord_t settings_col_dsc[] = {LV_GRID_CONTENT, LV_GRID_CONTENT, LV_GRID_CONTENT, LV_GRID_TEMPLATE_LAST};
+  static lv_coord_t settings_row_dsc[] = {LV_GRID_CONTENT, LV_GRID_CONTENT, LV_GRID_CONTENT, LV_GRID_CONTENT, LV_GRID_TEMPLATE_LAST};
+  lv_obj_set_grid_dsc_array(settings_panel, settings_col_dsc, settings_row_dsc);
+  // lv_obj_center(settings_panel);
+  lv_obj_set_size(settings_panel, LV_HOR_RES, LV_VER_RES);
+
+  lv_obj_t *title_s1 = lv_label_create(settings_panel);
+  lv_obj_set_grid_cell(title_s1, LV_GRID_ALIGN_START, 0, 1, LV_GRID_ALIGN_CENTER, 0, 1);
+  lv_label_set_text(title_s1, "Volume");
+
+  lv_obj_t *volume_value_label = lv_label_create(settings_panel);
+  lv_obj_set_grid_cell(volume_value_label, LV_GRID_ALIGN_START, 2, 1, LV_GRID_ALIGN_CENTER, 0, 1);
+  lv_label_set_text_fmt(volume_value_label, "%d", audio_volume);
   
+  lv_obj_t *volume_slider = lv_slider_create(settings_panel);
+  lv_slider_set_range(volume_slider, 0, 21);
+  lv_slider_set_value(volume_slider, audio_volume, LV_ANIM_OFF);
+  lv_obj_set_grid_cell(volume_slider, LV_GRID_ALIGN_START, 1, 1, LV_GRID_ALIGN_CENTER, 0, 1);
+  lv_obj_set_width(volume_slider, 160);
+  lv_obj_add_event_cb(volume_slider, volume_slider_event_cb, LV_EVENT_VALUE_CHANGED, volume_value_label);
+
+  lv_obj_t *title_s2 = lv_label_create(settings_panel);
+  lv_obj_set_grid_cell(title_s2, LV_GRID_ALIGN_START, 0, 1, LV_GRID_ALIGN_CENTER, 1, 1);
+  lv_label_set_text(title_s2, "SSID");
+
+  lv_obj_t *ssid_ta = lv_textarea_create(settings_panel);
+  lv_obj_set_grid_cell(ssid_ta, LV_GRID_ALIGN_START, 1, 1, LV_GRID_ALIGN_CENTER, 1, 1);
+  lv_obj_set_width(ssid_ta, 160);
+  lv_textarea_set_one_line(ssid_ta, true);
+  lv_obj_add_event_cb(ssid_ta, ta_event_cb, LV_EVENT_ALL, settings_panel);
+
+  lv_obj_t *title_s3 = lv_label_create(settings_panel);
+  lv_obj_set_grid_cell(title_s3, LV_GRID_ALIGN_START, 0, 1, LV_GRID_ALIGN_CENTER, 2, 1);
+  lv_label_set_text(title_s3, "Password");
+  
+  lv_obj_t *pwd_ta = lv_textarea_create(settings_panel);
+  lv_obj_set_grid_cell(pwd_ta, LV_GRID_ALIGN_START, 1, 1, LV_GRID_ALIGN_CENTER, 2, 1);
+  lv_obj_set_width(pwd_ta, 160);
+  lv_textarea_set_one_line(pwd_ta, true);
+  lv_textarea_set_password_mode(pwd_ta, true);
+  lv_obj_add_event_cb(pwd_ta, ta_event_cb, LV_EVENT_ALL, settings_panel);
 
   kb = lv_keyboard_create(lv_layer_top());
   lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
@@ -819,11 +891,7 @@ void setup(void) {
 
   lv_widgets();
   targetTime = millis() + 1000;
-  // year = 2023;
-  // month = 9;
 
-  // Serial.printf("%d %d %d %d %d", tm.tm_year+1900, tm.tm_mon+1, tm.tm_mday, tm.tm_min, tm.tm_sec);
-  // Serial.println(&tm, "%A, %B %d %Y %H:%M:%S");
   Serial.println("end setup()");
 }
 
