@@ -45,10 +45,10 @@ typedef struct _noti_item_t {
   lv_obj_t *list_btn;
 } noti_item_t;
 
-// const char *ssid = "HSCC";
-const char *ssid = "CHT Wi-Fi Home-CJ7";
-// const char *password = "hscc54747";
-const char *password = "qwertyuiop";
+char ssid[64] = "";
+char password[128] = "";
+const char *ssid_file_path = "/ssid.txt";
+const char *pwd_file_path = "/pwd.txt";
 const char *ntpServer = "time.stdtime.gov.tw";
 const long gmtOffset_sec = 8*60*60;
 const int daylightOffset_sec = 0;
@@ -62,6 +62,42 @@ TFT_eSPI tft = TFT_eSPI();       // Invoke custom library
 static lv_disp_draw_buf_t draw_buf;
 static lv_color_t buf[ screenWidth * screenHeight / 10 ];
 int audio_volume = 8;
+
+void readSsidPwdFromFile(){
+  File wifiFile;
+  if(SD_MMC.exists(ssid_file_path)){
+    wifiFile = SD_MMC.open(ssid_file_path);
+    int len = wifiFile.available();
+    wifiFile.read((uint8_t *)ssid, len);
+    Serial.println("exists");
+  }
+  else{
+    wifiFile = SD_MMC.open(ssid_file_path, "w", true);
+    Serial.println("not exists");
+  }
+  wifiFile.close();
+  if(SD_MMC.exists(pwd_file_path)){
+    wifiFile = SD_MMC.open(pwd_file_path);
+    int len = wifiFile.available();
+    wifiFile.read((uint8_t *)password, len);
+    Serial.println("exists");
+  }
+  else{
+    wifiFile = SD_MMC.open(pwd_file_path, "w", true);
+    Serial.println("not exists");
+  }
+  wifiFile.close();
+}
+
+void writeSsidPwdToFile(){
+  File wifiFile;
+  wifiFile = SD_MMC.open(ssid_file_path, "w");
+  wifiFile.write((uint8_t *)ssid, strlen(ssid) + 1);
+  wifiFile.close();
+  wifiFile = SD_MMC.open(pwd_file_path, "w");
+  wifiFile.write((uint8_t *)password, strlen(password) + 1);
+  wifiFile.close();
+}
 
 void sd_setup(){
   SD_MMC.setPins(SD_MMC_CLK, SD_MMC_CMD, SD_MMC_D0);
@@ -713,8 +749,9 @@ void connect_btn_event_cb(lv_event_t *e){
 
   if(code == LV_EVENT_CLICKED) { 
     lv_obj_t *tg = (lv_obj_t *)lv_event_get_user_data(e);
-    ssid = lv_textarea_get_text(ssid_ta);
-    password = lv_textarea_get_text(pwd_ta);
+    strncpy(ssid, lv_textarea_get_text(ssid_ta), 63);
+    strncpy(password, lv_textarea_get_text(pwd_ta), 127);
+    writeSsidPwdToFile();
     wifi_on = 1;
     wifi_ckpt = 0;
     time_updated = false;
@@ -900,9 +937,10 @@ void setup(void) {
   date_parse(__DATE__, &y, &m, &d);
   Serial.printf("%d %d %d\n",y,m,d);
   
-  WiFi.begin(ssid, password);
   sd_setup();
   audio_setup();
+  readSsidPwdFromFile();
+  WiFi.begin(ssid, password);
   URTCLIB_WIRE.begin(20, 19);
   initDateTime();
   // rtc.set(0, 45, 19, 6, 6, 1, 2024);
