@@ -159,6 +159,7 @@ int y,m,d,dow;
 bool getNTPServerTime = true;
 int wifi_ckpt = 0;
 int wifi_on = 1;
+bool time_updated = false;
 byte omm = 99, oss = 99;
 byte xcolon = 0, xsecs = 0;
 unsigned int colour = 0;
@@ -296,7 +297,7 @@ void date_parse(char const *date, int *yr, int *mo, int *d) {
 
 /* lvgl variables initialize */
 static const lv_font_t *font_large, *font_normal, *font_clock, *font_clock_small;
-static lv_obj_t *tv, *calendar, *text_clock, *dmy, *latest_noti, *temperature, *panel, *noti_list, *modify_panel, *kb, *roller_hour, *roller_min, *description;
+static lv_obj_t *tv, *calendar, *text_clock, *dmy, *latest_noti, *temperature, *panel, *noti_list, *modify_panel, *kb, *roller_hour, *roller_min, *description, *ssid_ta, *pwd_ta, *connect_status;
 static lv_style_t style_clock, style_clock_small;
 lv_calendar_date_t pressed_date;
 noti_item_t *selected_noti;
@@ -414,14 +415,29 @@ void mbox_close_cb(lv_event_t * e)
   }
 }
 
+void updateConnectStatus(){
+  if(wifi_on){
+    lv_label_set_text(connect_status, "connecting...");
+  }
+  else if(time_updated){
+    lv_label_set_text(connect_status, "time updated!");
+  }
+  else{
+    lv_label_set_text(connect_status, "Wi-Fi not detected");
+  }
+}
+
 /* update the clock time */
 void clock_timer_callback(lv_timer_t *timer){
   if(tick){
     tick = false;
     lv_label_set_text_fmt(text_clock, "%02d:%02d:%02d", hh, mm, ss);
     if(wifi_on){
-      if(fetchTimeFromNTPServer())
+      if(fetchTimeFromNTPServer()){
         lv_label_set_text_fmt(dmy, "%s %d %d - %s", month_abbr[m-1], d, y, week_abbr[dow]);
+        time_updated = true;
+      }
+      updateConnectStatus();
     }
     if(ss % 10 == 0){
       rtc.refresh();
@@ -691,6 +707,21 @@ void volume_slider_event_cb(lv_event_t *e){
   lv_label_set_text_fmt(tg, "%d", audio_volume);
 }
 
+void connect_btn_event_cb(lv_event_t *e){
+  lv_event_code_t code = lv_event_get_code(e);
+  lv_obj_t * float_btn = lv_event_get_target(e);
+
+  if(code == LV_EVENT_CLICKED) { 
+    lv_obj_t *tg = (lv_obj_t *)lv_event_get_user_data(e);
+    ssid = lv_textarea_get_text(ssid_ta);
+    password = lv_textarea_get_text(pwd_ta);
+    wifi_on = 1;
+    wifi_ckpt = 0;
+    time_updated = false;
+    WiFi.begin(ssid, password);
+  }
+}
+
 /* click the calendar date */
 void calendar_event_cb(lv_event_t *e){
   lv_event_code_t code = lv_event_get_code(e);
@@ -820,16 +851,17 @@ void lv_widgets(){
   lv_slider_set_range(volume_slider, 0, 21);
   lv_slider_set_value(volume_slider, audio_volume, LV_ANIM_OFF);
   lv_obj_set_grid_cell(volume_slider, LV_GRID_ALIGN_START, 1, 1, LV_GRID_ALIGN_CENTER, 0, 1);
-  lv_obj_set_width(volume_slider, 160);
+  lv_obj_set_width(volume_slider, 140);
   lv_obj_add_event_cb(volume_slider, volume_slider_event_cb, LV_EVENT_VALUE_CHANGED, volume_value_label);
 
   lv_obj_t *title_s2 = lv_label_create(settings_panel);
   lv_obj_set_grid_cell(title_s2, LV_GRID_ALIGN_START, 0, 1, LV_GRID_ALIGN_CENTER, 1, 1);
   lv_label_set_text(title_s2, "SSID");
 
-  lv_obj_t *ssid_ta = lv_textarea_create(settings_panel);
+  ssid_ta = lv_textarea_create(settings_panel);
   lv_obj_set_grid_cell(ssid_ta, LV_GRID_ALIGN_START, 1, 1, LV_GRID_ALIGN_CENTER, 1, 1);
-  lv_obj_set_width(ssid_ta, 160);
+  lv_obj_set_width(ssid_ta, 140);
+  lv_textarea_set_text(ssid_ta, ssid);
   lv_textarea_set_one_line(ssid_ta, true);
   lv_obj_add_event_cb(ssid_ta, ta_event_cb, LV_EVENT_ALL, settings_panel);
 
@@ -837,12 +869,24 @@ void lv_widgets(){
   lv_obj_set_grid_cell(title_s3, LV_GRID_ALIGN_START, 0, 1, LV_GRID_ALIGN_CENTER, 2, 1);
   lv_label_set_text(title_s3, "Password");
   
-  lv_obj_t *pwd_ta = lv_textarea_create(settings_panel);
+  pwd_ta = lv_textarea_create(settings_panel);
   lv_obj_set_grid_cell(pwd_ta, LV_GRID_ALIGN_START, 1, 1, LV_GRID_ALIGN_CENTER, 2, 1);
-  lv_obj_set_width(pwd_ta, 160);
+  lv_obj_set_width(pwd_ta, 140);
+  lv_textarea_set_text(pwd_ta, password);
   lv_textarea_set_one_line(pwd_ta, true);
   lv_textarea_set_password_mode(pwd_ta, true);
   lv_obj_add_event_cb(pwd_ta, ta_event_cb, LV_EVENT_ALL, settings_panel);
+
+  connect_status = lv_label_create(settings_panel);
+  lv_obj_set_grid_cell(connect_status, LV_GRID_ALIGN_START, 0, 3, LV_GRID_ALIGN_CENTER, 3, 1);
+  updateConnectStatus();
+
+  lv_obj_t *connect_btn = lv_btn_create(settings_panel);
+  lv_obj_set_grid_cell(connect_btn, LV_GRID_ALIGN_START, 2, 1, LV_GRID_ALIGN_CENTER, 1, 2);
+  lv_obj_add_event_cb(connect_btn, connect_btn_event_cb, LV_EVENT_ALL, NULL);
+  lv_obj_t *btn_label = lv_label_create(connect_btn);
+  lv_label_set_text(btn_label, "Connect");
+  lv_obj_center(btn_label);
 
   kb = lv_keyboard_create(lv_layer_top());
   lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
