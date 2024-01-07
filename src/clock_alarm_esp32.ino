@@ -153,7 +153,7 @@ static uint8_t conv2d(const char* p); // Forward declaration needed for IDE 1.6.
 
 uint8_t hh = conv2d(__TIME__), mm = conv2d(__TIME__ + 3), ss = conv2d(__TIME__ + 6); // Get H, M, S from compile time
 bool tick = false;
-int y,m,d;
+int y,m,d,dow;
 bool getNTPServerTime = true;
 int wifi_ckpt = 0;
 int wifi_on = 1;
@@ -169,6 +169,7 @@ void initDateTime() {
   y = rtc.year() + 2000;
   m = rtc.month();
   d = rtc.day();
+  dow = rtc.dayOfWeek() % 7;
   Serial.printf("%d %d %d %d %d %d\n", hh, mm, ss, y, m, d);
 }
 
@@ -184,9 +185,13 @@ void setLocalTime() {
   y = timeinfo.tm_year + 1900;
   m = timeinfo.tm_mon + 1;
   d = timeinfo.tm_mday;
-  int dayofweek = timeinfo.tm_wday;
+  dow = timeinfo.tm_wday;
+  if(dow == 0){
+    dow = 7;
+  }
   Serial.printf("%d %d %d %d %d %d\n", hh, mm, ss, y, m, d); 
-  rtc.set(ss, mm, hh, dayofweek, d, m, y % 100);
+  rtc.set(ss, mm, hh, dow, d, m, y % 100);
+  dow %= 7;
 }
 
 bool fetchTimeFromNTPServer(){
@@ -355,6 +360,7 @@ bool sameTimeMin(int hour1, int min1, int hour2, int min2){
 
 void updateLatestNoti(){
   if(noti_list_vec.size() == 0){
+    lv_label_set_text(latest_noti, "No events");
     return;
   }
   lv_calendar_date_t today;
@@ -369,8 +375,10 @@ void updateLatestNoti(){
       latest = &noti_list_vec[i];
     }
   }
-  if(!compareDateTime(&latest->date, latest->hour, latest->min, &today, hh, mm))
+  if(!compareDateTime(&latest->date, latest->hour, latest->min, &today, hh, mm)){
+    lv_label_set_text(latest_noti, "No events");
     return;
+  }
   int diff_day, diff_hour, diff_min;
   diffDateTime(&diff_day, &diff_hour, &diff_min, &latest->date, latest->hour, latest->min, &today, hh, mm);
   lv_label_set_text_fmt(latest_noti, "Next: %s - in %d day %d hour %d minute", latest->description, diff_day, diff_hour, diff_min);
@@ -393,7 +401,7 @@ void clock_timer_callback(lv_timer_t *timer){
     lv_label_set_text_fmt(text_clock, "%02d:%02d:%02d", hh, mm, ss);
     if(wifi_on){
       if(fetchTimeFromNTPServer())
-        lv_label_set_text_fmt(dmy, "%s %d %d", month_abbr[m-1], d, y);
+        lv_label_set_text_fmt(dmy, "%s %d %d - %s", month_abbr[m-1], d, y, week_abbr[dow]);
     }
     if(ss % 10 == 0){
       rtc.refresh();
@@ -430,8 +438,13 @@ void clock_timer_callback(lv_timer_t *timer){
           // lv_obj_t *btn = lv_button_create
 
           audio.connecttoFS(SD_MMC, "StarWars60.wav");
+          updateLatestNoti();
           break;
         }
+      }
+      if(mm == 0 && hh == 0){ /* new day */
+        lv_label_set_text_fmt(dmy, "%s %d %d - %s", month_abbr[m-1], d, y, week_abbr[dow]);
+        lv_calendar_set_today_date(calendar, y, m, d);
       }
     }
   }
@@ -706,7 +719,7 @@ void lv_widgets(){
   // font_clock = &library3am_72;
   font_clock = &credc_48;
   font_clock_small = &credc_48;
-  font_clock_small = &lv_font_montserrat_48;
+  font_clock_small = &lv_font_montserrat_32;
   font_large = LV_FONT_DEFAULT;
   font_normal = LV_FONT_DEFAULT;
   // lv_theme_default_init(NULL, lv_palette_main(LV_PALETTE_BLUE), lv_palette_main(LV_PALETTE_RED), LV_THEME_DEFAULT_DARK, font_normal);c:\Users\user\Downloads\credc_24.c
@@ -717,6 +730,7 @@ void lv_widgets(){
   lv_obj_set_scrollbar_mode(tv, LV_SCROLLBAR_MODE_OFF);
   lv_obj_t *t1 = lv_tileview_add_tile(tv, 0, 0, LV_DIR_RIGHT | LV_DIR_LEFT);
   lv_obj_t *t2 = lv_tileview_add_tile(tv, 1, 0, LV_DIR_RIGHT | LV_DIR_LEFT);
+  lv_obj_t *t3 = lv_tileview_add_tile(tv, 2, 0, LV_DIR_RIGHT | LV_DIR_LEFT);
 
   /* calendar */
   calendar = lv_calendar_create(t2);
@@ -740,28 +754,28 @@ void lv_widgets(){
   lv_obj_align(text_clock, LV_ALIGN_TOP_MID, 0, 20);
 
   dmy = lv_label_create(t1);
-  lv_label_set_text_fmt(dmy, "%s %d %d", month_abbr[m-1], d, y);
+  lv_label_set_text_fmt(dmy, "%s %d %d - %s", month_abbr[m-1], d, y, week_abbr[dow]);
   lv_obj_add_style(dmy, &style_clock_small, 0);
   lv_obj_align(dmy, LV_ALIGN_CENTER, 0, 0);
 
   latest_noti = lv_label_create(t1);
-  lv_label_set_text(latest_noti, "--");
+  lv_label_set_text(latest_noti, "No events");
   lv_obj_align(latest_noti, LV_ALIGN_BOTTOM_LEFT, 20, -40);
   lv_obj_set_width(latest_noti, 160);
   lv_label_set_long_mode(latest_noti, LV_LABEL_LONG_WRAP);
 
   temperature = lv_label_create(t1);
-  lv_label_set_text(temperature, "--");
-  lv_obj_align(temperature, LV_ALIGN_BOTTOM_RIGHT, -20, -20);
+  lv_label_set_text(temperature, "--°C");
+  lv_obj_align(temperature, LV_ALIGN_BOTTOM_RIGHT, -20, -30);
   lv_obj_add_style(temperature, &style_clock_small, 0);
   lv_obj_set_style_text_align(temperature, LV_TEXT_ALIGN_RIGHT, 0);
 
+  
+
   kb = lv_keyboard_create(lv_layer_top());
-  // lv_obj_add_flag(kb, LV_OBJ_FLAG_FLOATING);
   lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
 
   lv_timer_t *timer = lv_timer_create(clock_timer_callback, 50, NULL);
-  // Serial.println((unsigned long)timer);
 }
 
 void setup(void) {
@@ -835,20 +849,18 @@ void loop() {
         hh++;          // Advance hour
         if (hh > 23) { // Check for 24hr roll-over (could roll-over on 13)
           hh = 0;      // 0 for 24 hour clock, set to 1 for 12 hour clock
+          d++;
+          if(d > monthdays(m, y)) {
+            d = 1;
+            m++;
+            if(m > 12) {
+              m = 1;
+              y++;
+            }
+          }
         }
       }
     }
-
-    // month++;
-    // if(month == 13) {
-    //   month = 1;
-    //   year++;
-    // }
-
-    // drawCalendar(month, year);
-
-
-
   }
 }
 
