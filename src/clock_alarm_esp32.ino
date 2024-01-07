@@ -1,8 +1,5 @@
 #include <vector>
 #include <Audio.h>
-
-// #include "Arduino.h"
-// #include "Audio.h"
 #include "FS.h"
 #include "SD_MMC.h"
 #define LV_CONF_INCLUDE_SIMPLE
@@ -10,8 +7,6 @@
 #include <lvgl.h>
 #include <TFT_eSPI.h> // Hardware-specific library
 #include <SPI.h>
-// #include <time.h>
-// #include <TimeLib.h>
 #include <uRTCLib.h>
 #include <WiFi.h>
 #include <time.h>
@@ -50,8 +45,10 @@ typedef struct _noti_item_t {
   lv_obj_t *list_btn;
 } noti_item_t;
 
-const char *ssid = "HSCC";
-const char *password = "hscc54747";
+// const char *ssid = "HSCC";
+const char *ssid = "CHT Wi-Fi Home-CJ7";
+// const char *password = "hscc54747";
+const char *password = "qwertyuiop";
 const char *ntpServer = "time.stdtime.gov.tw";
 const long gmtOffset_sec = 8*60*60;
 const int daylightOffset_sec = 0;
@@ -169,7 +166,7 @@ void initDateTime() {
   hh = rtc.hour();
   mm = rtc.minute();
   ss = rtc.second();
-  y = rtc.year() + 1900;
+  y = rtc.year() + 2000;
   m = rtc.month();
   d = rtc.day();
   Serial.printf("%d %d %d %d %d %d\n", hh, mm, ss, y, m, d);
@@ -186,10 +183,10 @@ void setLocalTime() {
   ss = timeinfo.tm_sec;
   y = timeinfo.tm_year + 1900;
   m = timeinfo.tm_mon + 1;
-  d = timeinfo.tm_wday;
+  d = timeinfo.tm_mday;
   int dayofweek = timeinfo.tm_wday;
-
-  rtc.set(ss, mm, hh, dayofweek, d, m, y);
+  Serial.printf("%d %d %d %d %d %d\n", hh, mm, ss, y, m, d); 
+  rtc.set(ss, mm, hh, dayofweek, d, m, y % 100);
 }
 
 bool fetchTimeFromNTPServer(){
@@ -231,51 +228,12 @@ char *month_abbr[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "S
 char week_capital[] = "UMTWRFS";
 char *week_abbr[] = {"SUN","MON","TUE","WED","THU","FRI","SAT"};
 
-
-// int year, month;
-
 void readTouch(){
   uint16_t tx, ty;
   bool touched = tft.getTouch(&tx, &ty, 600);
   if(touched){
     Serial.println(tx);
     Serial.println(ty);
-  }
-}
-
-void drawCalendar(int month, int year){
-  int xoffset = 40;
-  int yoffset = 70;
-  int row_width = 24, col_width = 24;
-  char moyr[10];
-  sprintf(moyr, "%s %d", month_abbr[month-1], year);
-  tft.setTextColor(TFT_YELLOW, TFT_BLACK);
-  tft.drawString(moyr, xoffset, yoffset - 48, 2);
-  // tft.drawString("物聯網期末", xoffset, yoffset - 70, 2);
-  int numDays = monthdays(month, year);
-  int week = dayNumber(1, month, year);
-  tft.fillRect(xoffset, yoffset, 7*row_width, 6*col_width, TFT_BLACK);
-  for(int i = 0; i < 7; i++){
-    if(i == 0 || i == 6)
-      tft.setTextColor(TFT_RED, TFT_BLACK);
-    else
-      tft.setTextColor(TFT_YELLOW, TFT_BLACK);
-    tft.drawChar(week_capital[i], xoffset + i*row_width, yoffset - 24, 2);
-  }
-  for(int d = 1; d <= numDays; d++){
-    int xd = (week + d - 1) % 7;
-    int yd = (week + d - 1) / 7;
-    if(xd == 0 || xd == 6)
-      tft.setTextColor(TFT_RED, TFT_BLACK);
-    else
-      tft.setTextColor(TFT_YELLOW, TFT_BLACK);
-    if(d <= 9){
-      char dc[3];
-      sprintf(dc, "%2d", d);
-      tft.drawString(dc, xoffset + xd*row_width, yoffset + yd*col_width, 2);
-    }
-    else
-      tft.drawNumber(d, xoffset + xd*row_width, yoffset + yd*col_width, 2);
   }
 }
 
@@ -331,7 +289,7 @@ void date_parse(char const *date, int *yr, int *mo, int *d) {
 
 /* lvgl variables initialize */
 static const lv_font_t *font_large, *font_normal, *font_clock, *font_clock_small;
-static lv_obj_t *tv, *calendar, *text_clock, *dmy, *latest_noti, *panel, *noti_list, *modify_panel, *kb, *roller_hour, *roller_min, *description;
+static lv_obj_t *tv, *calendar, *text_clock, *dmy, *latest_noti, *temperature, *panel, *noti_list, *modify_panel, *kb, *roller_hour, *roller_min, *description;
 static lv_style_t style_clock, style_clock_small;
 lv_calendar_date_t pressed_date;
 noti_item_t *selected_noti;
@@ -382,7 +340,7 @@ void diffDateTime(int *result_day, int *result_hour, int *result_min, lv_calenda
   *result_min = diff % 60;
   diff /= 60;
   *result_hour = diff % 24;
-  *result_day = diff / 60;
+  *result_day = diff / 24;
   Serial.printf("%d %d %d %d %d %d %d %d %d %d\n", d1->year, d1->month, d1->day, hour1, min1, d2->year, d2->month, d2->day, hour2, min2);
   // result_d->year = diff 
 }
@@ -415,7 +373,7 @@ void updateLatestNoti(){
     return;
   int diff_day, diff_hour, diff_min;
   diffDateTime(&diff_day, &diff_hour, &diff_min, &latest->date, latest->hour, latest->min, &today, hh, mm);
-  lv_label_set_text_fmt(latest_noti, "Next: in %d day %d hour %d minute - %s", diff_day, diff_hour, diff_min, latest->description);
+  lv_label_set_text_fmt(latest_noti, "Next: %s - in %d day %d hour %d minute", latest->description, diff_day, diff_hour, diff_min);
 }
 
 void mbox_close_cb(lv_event_t * e)
@@ -437,7 +395,13 @@ void clock_timer_callback(lv_timer_t *timer){
       if(fetchTimeFromNTPServer())
         lv_label_set_text_fmt(dmy, "%s %d %d", month_abbr[m-1], d, y);
     }
+    if(ss % 10 == 0){
+      rtc.refresh();
+      int temp = rtc.temp();
+      lv_label_set_text_fmt(temperature, "%d°C", temp/100 + (temp%100 > 50));
+    }
     if(ss == 0){
+      
       lv_calendar_date_t today;
       today.year = y;
       today.month = m;
@@ -782,7 +746,15 @@ void lv_widgets(){
 
   latest_noti = lv_label_create(t1);
   lv_label_set_text(latest_noti, "--");
-  lv_obj_align(latest_noti, LV_ALIGN_BOTTOM_MID, 0, -20);
+  lv_obj_align(latest_noti, LV_ALIGN_BOTTOM_LEFT, 20, -40);
+  lv_obj_set_width(latest_noti, 160);
+  lv_label_set_long_mode(latest_noti, LV_LABEL_LONG_WRAP);
+
+  temperature = lv_label_create(t1);
+  lv_label_set_text(temperature, "--");
+  lv_obj_align(temperature, LV_ALIGN_BOTTOM_RIGHT, -20, -20);
+  lv_obj_add_style(temperature, &style_clock_small, 0);
+  lv_obj_set_style_text_align(temperature, LV_TEXT_ALIGN_RIGHT, 0);
 
   kb = lv_keyboard_create(lv_layer_top());
   // lv_obj_add_flag(kb, LV_OBJ_FLAG_FLOATING);
