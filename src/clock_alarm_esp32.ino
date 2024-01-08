@@ -10,6 +10,7 @@
 #include <uRTCLib.h>
 #include <WiFi.h>
 #include <time.h>
+#include <ArduinoJson.h>
 
 
 #define TFT_GREY 0x5AEB
@@ -62,6 +63,61 @@ TFT_eSPI tft = TFT_eSPI();       // Invoke custom library
 static lv_disp_draw_buf_t draw_buf;
 static lv_color_t buf[ screenWidth * screenHeight / 10 ];
 int audio_volume = 8;
+
+void getNotiFromSD(){
+  File root = SD_MMC.open("/");
+  File file = root.openNextFile();
+  StaticJsonDocument<1024> doc;
+
+  while(file){
+    if(strncmp(file.name(), "noti_", 5) == 0){
+      DeserializationError error = deserializeJson(doc, file);
+      if(error){
+        Serial.println("deserializeJson() failed: ");
+        Serial.println(error.c_str());
+        continue;
+      }
+      noti_item_t noti;
+      noti.id = doc["id"];
+      noti.date.year = doc["year"];
+      noti.date.month = doc["month"];
+      noti.date.day = doc["day"];
+      noti.hour = doc["hour"];
+      noti.min = doc["min"];
+      strcpy(noti.description, doc["description"]);
+      noti_list_vec.push_back(noti);
+      Serial.println(noti.id);
+      if(noti.id >= num_ids){
+        num_ids = noti.id + 1;
+      }
+    }
+    Serial.println(file.name());
+    file = root.openNextFile();
+  }
+  file.close();
+}
+
+void saveNotiToSD(noti_item_t *noti){
+  char buf[1024];
+  sprintf(buf, "/noti_%d.json", noti->id);
+  File file = SD_MMC.open(buf, FILE_WRITE);
+  StaticJsonDocument<1024> doc;
+  doc["id"] = noti->id;
+  doc["year"] = noti->date.year;
+  doc["month"] = noti->date.month;
+  doc["day"] = noti->date.day;
+  doc["hour"] = noti->hour;
+  doc["min"] = noti->min;
+  doc["description"] = noti->description;
+  serializeJson(doc, file);
+  file.close();
+}
+
+void removeNotiFromSD(noti_item_t *noti){
+  char buf[32];
+  sprintf(buf, "/noti_%d.json", noti->id);
+  SD_MMC.remove(buf);
+}
 
 void readSsidPwdFromFile(){
   File wifiFile;
@@ -420,7 +476,7 @@ void updateLatestNoti(){
   today.month = m;
   today.day = d;
   noti_item_t *latest = NULL;
-  for(int i = 1; i < noti_list_vec.size(); i++){
+  for(int i = 0; i < noti_list_vec.size(); i++){
     if(latest == NULL) {
       if(compareDateTime(&noti_list_vec[i].date, noti_list_vec[i].hour, noti_list_vec[i].min, &today, hh, mm)){
         latest = &noti_list_vec[i];
@@ -543,6 +599,7 @@ void noti_del_btn_event_cb(lv_event_t *e){
     for(auto it = noti_list_vec.begin(); it != noti_list_vec.end(); it++){
       if(it->id == tg->id){
         noti_list_vec.erase(it);
+        removeNotiFromSD(tg);
         break;
       }
     }
@@ -562,6 +619,7 @@ void modify_save_close_event_cb(lv_event_t *e){
     selected_noti->min = atoi(buf);
     // selected_noti->description = lv_textarea_get_text(description);
     strcpy(selected_noti->description, lv_textarea_get_text(description));
+    saveNotiToSD(selected_noti);
     lv_snprintf(buf, sizeof(buf), "%02d:%02d - %s", selected_noti->hour, selected_noti->min, selected_noti->description);
     // lv_label_set_text(selected_noti->list_btn, buf);
     for(int i = 0; i < lv_obj_get_child_cnt(selected_noti->list_btn); i++) {
@@ -725,6 +783,7 @@ void noti_add_btn_event_cb(lv_event_t *e){
     // noti_new.description = "Untitled event";
     strcpy(noti_new.description, "Untitled event");
     noti_list_vec.push_back(noti_new);
+    saveNotiToSD(&noti_new);
     lv_snprintf(buf, sizeof(buf), "%02d:%02d - %s", noti_new.hour, noti_new.min, noti_new.description);
     lv_obj_t *noti_list_btn = lv_list_add_btn(noti_list, NULL, buf);
     noti_list_vec[noti_list_vec.size()-1].list_btn = noti_list_btn;
@@ -860,6 +919,7 @@ void lv_widgets(){
   lv_obj_align(latest_noti, LV_ALIGN_BOTTOM_LEFT, 20, -40);
   lv_obj_set_width(latest_noti, 160);
   lv_label_set_long_mode(latest_noti, LV_LABEL_LONG_WRAP);
+  updateLatestNoti();
 
   temperature = lv_label_create(t1);
   lv_label_set_text(temperature, "--°C");
@@ -939,6 +999,7 @@ void setup(void) {
   
   sd_setup();
   audio_setup();
+  getNotiFromSD();
   readSsidPwdFromFile();
   WiFi.begin(ssid, password);
   URTCLIB_WIRE.begin(20, 19);
