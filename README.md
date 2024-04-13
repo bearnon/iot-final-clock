@@ -1,6 +1,6 @@
 # IOT Final Project Clock Alarm with TFT LCD Touchscreen
 
-See iot-final-report.pdf for more details
+See `iot-final-report.pdf` for more details
 
 ![IMG_2623](https://github.com/bearnon/iot-final-clock/assets/68803173/c2038986-9309-4e7f-ac01-804908cdcb0a)
 
